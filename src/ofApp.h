@@ -36,5 +36,7 @@ class ofApp : public ofBaseApp{
 		void sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_);
 
 		string _str_info;
-
+		
+		ofShader _shader_blur,_shader_glitch;
+		ofFbo _fbo1,_fbo2;
 };

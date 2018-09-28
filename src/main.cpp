@@ -4,7 +4,11 @@
 //========================================================================
 int main( ){
 
-	ofSetupOpenGL(640,480, OF_WINDOW);			// <-------- setup the GL context
+	//ofSetupOpenGL(640,480, OF_WINDOW);			// <-------- setup the GL context
+
+	ofGLESWindowSettings settings;
+	settings.glesVersion=2;
+	ofCreateWindow(settings);
 
 	// this kicks off the running of my app
 	// can be OF_WINDOW or OF_FULLSCREEN

@@ -3,6 +3,9 @@
 //--------------------------------------------------------------
 void ofApp::setup(){
 
+	ofSetWindowShape(800,480);
+	ofHideCursor();
+
 	_receiver.setup(PORT);	
 	_img_muse.load("muse.png");
 	
@@ -12,6 +15,25 @@ void ofApp::setup(){
 	_time_fadein=800;
 	_time_show=1000;
 	_time_fadeout=3000;
+	
+	float wid=ofGetWidth();
+	float hei=ofGetHeight();
+
+	_shader_blur.load("shadersES2/shaderBlurX");
+	_shader_glitch.load("shadersES2/glitch");
+
+	_shader_blur.begin();
+	_shader_blur.setUniform1f("windowWidth",wid);
+	_shader_blur.setUniform1f("windowHeight",hei);
+	_shader_blur.end();
+	
+	_shader_glitch.begin();
+	_shader_glitch.setUniform1f("windowWidth",wid);
+	_shader_glitch.setUniform1f("windowHeight",hei);
+	_shader_glitch.end();
+
+	_fbo1.allocate(wid,hei);
+	_fbo2.allocate(wid,hei);
 
 }
 
@@ -84,13 +106,50 @@ void ofApp::sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int t
 //--------------------------------------------------------------
 void ofApp::draw(){
 	ofSetBackgroundColor(0);
+
 	float wid=ofGetWidth()*.6;
 	float hei=wid*0.33;
 
+	_fbo2.begin();
+	ofClear(0);
 	ofPushMatrix();
 	ofTranslate(ofGetWidth()/2-wid/2,ofGetHeight()/2-hei/2);
 		_img_muse.draw(0,0,wid,hei);
 	ofPopMatrix();
+	_fbo2.end();
+	
+	_fbo1.begin();
+	ofClear(0);
+	_shader_glitch.begin();
+	_shader_glitch.setUniform1f("amount",3);
+	_shader_glitch.setUniform1f("phi",ofRandom(-100,100));
+	_shader_glitch.setUniform1f("angle",PI*sin(ofGetFrameNum()%40/40+(ofRandom(20)<1?0:ofRandom(-10,10))));
+	_shader_glitch.setUniform1f("windowWidth",ofGetWidth());
+	_shader_glitch.setUniform1f("windowHeight",ofGetHeight());
+	_shader_glitch.setUniformTexture("tex0",_fbo2.getTexture(),0);
+		_fbo2.draw(0,0);
+	_shader_glitch.end();
+	_fbo1.end();
+	
+	_fbo2.begin();
+	ofClear(0);
+	_shader_blur.begin();
+	_shader_blur.setUniformTexture("tex0",_fbo1.getTexture(),0);
+	_shader_blur.setUniform1f("windowWidth",ofGetWidth());
+	_shader_blur.setUniform1f("windowHeight",ofGetHeight());
+		_fbo1.draw(0,0);
+	_shader_blur.end();
+	_fbo2.end();
+
+	_fbo1.begin();
+	ofClear(0);
+	_shader_blur.begin();
+	_shader_blur.setUniformTexture("tex0",_fbo2.getTexture(),0);
+		_fbo2.draw(0,0);	
+	_shader_blur.end();
+	_fbo1.end();
+	
+	_fbo1.draw(0,0);
 
 	ofPushStyle();
 	ofSetColor(255,0,0);
