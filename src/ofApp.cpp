@@ -5,11 +5,16 @@ void ofApp::setup(){
 
 	ofSetWindowShape(800,480);
 	ofHideCursor();
+	
+	
+	_serial.setup("/dev/ttyAMA0",9600);	
+	loadXmlSetting();
 
 	_receiver.setup(PORT);	
 	_img_muse.load("muse.png");
 	
-	ofRegisterURLNotification(this);
+	ofRegisterURLNotification(this);	
+	//ofAddListener(_http.newResponseEvent,this,&ofApp::httpResponse);
 
 	_time_delay=0;
 	_time_fadein=800;
@@ -35,6 +40,7 @@ void ofApp::setup(){
 	_fbo1.allocate(wid,hei);
 	_fbo2.allocate(wid,hei);
 
+	setStatus(PStatus::SLEEP);
 }
 
 //--------------------------------------------------------------
@@ -46,35 +52,66 @@ void ofApp::updateOsc(){
 	while(_receiver.hasWaitingMessages()){
 		ofxOscMessage m;
 		_receiver.getNextMessage(m);
-		if(m.getAddress()=="/face"){
+		string addr=m.getAddress();
+		ofLog()<<"get message: "<<addr;
+		if(addr=="/face"){
 			int mood_=m.getArgAsFloat(0);
 			ofLog()<<"get face!";
-			_str_info="get face!!";
+			_str_info+="get face!!";
 			sendPoemRequest(mood_);
+			setStatus(PStatus::PROCESS);
+
+		}else if(addr=="/reset"){
+			ofLog()<<"reset!";
+			setStatus(PStatus::SLEEP);
 		}
 	}
 }
 
 void ofApp::sendPoemRequest(float mood_){
-	int id=ofLoadURLAsync("http://muse.mmlab.com.tw:5000/generate/mood/"+ofToString(mood_));
+	string url_="http://muse.mmlab.com.tw:5000/generate/mood/"+ofToString(mood_);
+	int id=ofLoadURLAsync(url_);
+	
+/*	ofxHttpForm form;
+	form.method=OFX_HTTP_GET;
+	_http.addForm(form);*/
+	
 	_str_info+="Request Poem, mood="+ofToString(mood_)+"/n";
 	ofLog()<<_str_info;
 }
 void ofApp::urlResponse(ofHttpResponse& resp){
-	string data=resp.data;
+        string data=resp.data;
+        _str_info+="Receive data: "+data;
+        ofLog()<<"receive data";
+
+        auto s=ofSplitString(data,"|");
+        int len=s.size();
+
+        sendOsc(concatPoem(s,0,min(len,4)),_str_ip[2],_time_delay,_time_fadein*4,_time_show+_time_fadein*3,_time_fadeout);
+        if(len>4){
+                sendOsc(concatPoem(s,4,min(len,6)),_str_ip[3],_time_delay+_time_fadein*4,_time_fadein*2,_time_show+_time_fadein,_time_fadeout);
+                if(len>6) sendOsc(concatPoem(s,6,len),_str_ip[4],_time_delay+_time_fadein*6,_time_fadein,_time_show,_time_fadeout);
+        }
+        setStatus(PStatus::POEM);
+
+}
+/*void ofApp::httpResponse(ofxHttpResponse& resp){
+	string data=(string)resp.responseBody;
 	_str_info+="Receive data: "+data;
-	ofLog()<<_str_info;
+	ofLog()<<"receive data";
 
 	auto s=ofSplitString(data,"|");
 	int len=s.size();
-
-	sendOsc(concatPoem(s,0,min(len,4)),"192.168.2.172",_time_delay,_time_fadein*4,_time_show+_time_fadein*3,_time_fadeout);
+	
+	sendOsc(concatPoem(s,0,min(len,4)),_str_ip[2],_time_delay,_time_fadein*4,_time_show+_time_fadein*3,_time_fadeout);
 	if(len>4){
-		sendOsc(concatPoem(s,4,min(len,6)),"192.168.2.115",_time_delay+_time_fadein*4,_time_fadein*2,_time_show+_time_fadein,_time_fadeout);
-		if(len>6) sendOsc(concatPoem(s,6,len),"192.168.2.171",_time_delay+_time_fadein*6,_time_fadein,_time_show,_time_fadeout);
+		sendOsc(concatPoem(s,4,min(len,6)),_str_ip[3],_time_delay+_time_fadein*4,_time_fadein*2,_time_show+_time_fadein,_time_fadeout);
+		if(len>6) sendOsc(concatPoem(s,6,len),_str_ip[4],_time_delay+_time_fadein*6,_time_fadein,_time_show,_time_fadeout);
 	}
+	setStatus(PStatus::POEM);
 
-}
+}*/
+
 string ofApp::concatPoem(vector<string> list_,int begin_,int end_){
 	string s_="";
 	for(int i=begin_;i<end_;++i) s_+=list_[i]+"|";
@@ -84,7 +121,7 @@ string ofApp::concatPoem(vector<string> list_,int begin_,int end_){
 void ofApp::sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_){
 
 	_str_info+="send poem to "+ip_+"\n";
-	ofLog()<<_str_info;
+	ofLog()<<"send osc";
 	
 	ofxOscSender sender_;
 	sender_.setup(ip_,PORT);
@@ -103,6 +140,24 @@ void ofApp::sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int t
 	sender_.sendMessage(message_);
 
 }
+void ofApp::setStatus(PStatus set_){
+	_status=set_;
+	switch(_status){
+		case SLEEP:
+			_serial.writeByte('A');
+			_str_info="";
+			break;
+		case PROCESS:
+			_serial.writeByte('B');
+			break;
+		case POEM:
+			_serial.writeByte('C');
+			break;
+	}
+
+}
+
+
 //--------------------------------------------------------------
 void ofApp::draw(){
 	ofSetBackgroundColor(0);
@@ -121,7 +176,7 @@ void ofApp::draw(){
 	_fbo1.begin();
 	ofClear(0);
 	_shader_glitch.begin();
-	_shader_glitch.setUniform1f("amount",3);
+	_shader_glitch.setUniform1f("amount",10);
 	_shader_glitch.setUniform1f("phi",ofRandom(-100,100));
 	_shader_glitch.setUniform1f("angle",PI*sin(ofGetFrameNum()%40/40+(ofRandom(20)<1?0:ofRandom(-10,10))));
 	_shader_glitch.setUniform1f("windowWidth",ofGetWidth());
@@ -152,62 +207,30 @@ void ofApp::draw(){
 	_fbo1.draw(0,0);
 
 	ofPushStyle();
-	ofSetColor(255,0,0);
-	ofDrawBitmapString(_str_info,0,ofGetHeight()/2);
+	ofSetColor(255);
+	ofDrawBitmapString(ofToString(ofGetFrameRate()),0,10);
+	ofDrawBitmapString(_str_info,0,ofGetHeight()/3);
 	ofPopStyle();
 }
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key){
+	switch(key){
+		case 'r':
+		case 'R':
+			setStatus(PStatus::SLEEP);
+			break;
+	}
+}
+
+void ofApp::loadXmlSetting(){
+	ofxXmlSettings param_;
+	param_.load("Pdata.xml");
+	_str_ip.push_back(param_.getValue("IP_FACE",""));
+	_str_ip.push_back(param_.getValue("IP_POEM",""));
+	_str_ip.push_back(param_.getValue("IP_DISPLAY1",""));
+	_str_ip.push_back(param_.getValue("IP_DISPLAY2",""));
+	_str_ip.push_back(param_.getValue("IP_DISPLAY3",""));
 
 }
 
-//--------------------------------------------------------------
-void ofApp::keyReleased(int key){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseMoved(int x, int y){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseDragged(int x, int y, int button){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mousePressed(int x, int y, int button){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseReleased(int x, int y, int button){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseEntered(int x, int y){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::mouseExited(int x, int y){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::windowResized(int w, int h){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::gotMessage(ofMessage msg){
-
-}
-
-//--------------------------------------------------------------
-void ofApp::dragEvent(ofDragInfo dragInfo){ 
-
-}
