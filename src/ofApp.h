@@ -23,8 +23,9 @@ class ofApp : public ofBaseApp{
 		string concatPoem(vector<string> list_,int begin_,int end_);
 
 		int _time_delay,_time_fadein,_time_show,_time_fadeout;
-		void sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_);
-		
+		void sendOsc(int index_,string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_);
+		void sendReset();
+
 		enum PStatus{SLEEP,PROCESS,POEM};
 		PStatus _status;
 		void setStatus(PStatus set_);
@@ -43,3 +44,4 @@ class ofApp : public ofBaseApp{
 //		void httpResponse(ofxHttpResponse& resp);
 
 };
+                              

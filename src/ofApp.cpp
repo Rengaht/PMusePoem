@@ -7,7 +7,7 @@ void ofApp::setup(){
 	ofHideCursor();
 	
 	
-	_serial.setup("/dev/ttyAMA0",9600);	
+	_serial.setup("/dev/ttyACM0",9600);	
 	loadXmlSetting();
 
 	_receiver.setup(PORT);	
@@ -18,7 +18,7 @@ void ofApp::setup(){
 
 	_time_delay=0;
 	_time_fadein=800;
-	_time_show=1000;
+	_time_show=15000;
 	_time_fadeout=3000;
 	
 	float wid=ofGetWidth();
@@ -54,13 +54,15 @@ void ofApp::updateOsc(){
 		_receiver.getNextMessage(m);
 		string addr=m.getAddress();
 		ofLog()<<"get message: "<<addr;
-		if(addr=="/face"){
-			int mood_=m.getArgAsFloat(0);
-			ofLog()<<"get face!";
-			_str_info+="get face!!";
-			sendPoemRequest(mood_);
-			setStatus(PStatus::PROCESS);
 
+		if(addr=="/face"){
+			if(_status==PStatus::SLEEP){
+				int mood_=m.getArgAsFloat(0);
+				ofLog()<<"get face!";
+				_str_info+="get face!!";
+				sendPoemRequest(mood_);
+				setStatus(PStatus::PROCESS);
+			}
 		}else if(addr=="/reset"){
 			ofLog()<<"reset!";
 			setStatus(PStatus::SLEEP);
@@ -80,18 +82,41 @@ void ofApp::sendPoemRequest(float mood_){
 	ofLog()<<_str_info;
 }
 void ofApp::urlResponse(ofHttpResponse& resp){
+
+	if(resp.status!=200 || _status!=PStatus::PROCESS){
+		setStatus(PStatus::SLEEP);
+		return;
+	}
+
+
         string data=resp.data;
-        _str_info+="Receive data: "+data;
-        ofLog()<<"receive data";
+        _str_info+="Receive data: /n"+data;
+        ofLog()<<"receive data "<<data;
+	
+	//if(_status!=PStatus::PROCESS) return;
+	
+        vector<string> s;
+	int len=0;
+	if(data.find("|")!=string::npos){
+		s=ofSplitString(data,"|");
+        	len=s.size();
+		_str_info+="#line= "+ofToString(len)+"/n";
+		ofLog()<<"#line= "<<ofToString(len);
+	}
+	if(s.size()<1){
+		ofLog()<<"no response!!!";
+		len=7;
+		for(int i=0;i<len;++i) s.push_back("xxx");
+	}
 
-        auto s=ofSplitString(data,"|");
-        int len=s.size();
-
-        sendOsc(concatPoem(s,0,min(len,4)),_str_ip[2],_time_delay,_time_fadein*4,_time_show+_time_fadein*3,_time_fadeout);
+        sendOsc(2,concatPoem(s,0,min(len,1)),_str_ip[0],_time_delay,_time_fadein,_time_show+_time_fadein*6,_time_fadeout);
+        sendOsc(0,concatPoem(s,1,min(len,4)),_str_ip[0],_time_delay+_time_fadein,_time_fadein*4,_time_show+_time_fadein*3,_time_fadeout);
         if(len>4){
-                sendOsc(concatPoem(s,4,min(len,6)),_str_ip[3],_time_delay+_time_fadein*4,_time_fadein*2,_time_show+_time_fadein,_time_fadeout);
-                if(len>6) sendOsc(concatPoem(s,6,len),_str_ip[4],_time_delay+_time_fadein*6,_time_fadein,_time_show,_time_fadeout);
+                sendOsc(1,concatPoem(s,4,min(len,7)),_str_ip[0],_time_delay+_time_fadein*5,_time_fadein*2,_time_show,_time_fadeout);
+                //if(len>6) sendOsc(2,concatPoem(s,6,len),_str_ip[0],_time_delay+_time_fadein*6,_time_fadein,_time_show,_time_fadeout);
         }
+//	for(int i=3;i<6;++i)
+//		sendOsc(concatPoem(s,0,len),_str_ip[i],_time_delay,_time_fadein,_time_show,_time_fadeout);
         setStatus(PStatus::POEM);
 
 }
@@ -118,18 +143,20 @@ string ofApp::concatPoem(vector<string> list_,int begin_,int end_){
 	return s_;
 }
 
-void ofApp::sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_){
+void ofApp::sendOsc(int index_,string str_,string ip_,int tdelay_,int tin_,int tshow_,int tout_){
 
 	_str_info+="send poem to "+ip_+"\n";
-	ofLog()<<"send osc";
-	
+	ofLog()<<"send poem "<<index_<<" ip="<<ip_;
+
 	ofxOscSender sender_;
 	sender_.setup(ip_,PORT);
-	
+
 	ofxOscMessage message_;
 	message_.setAddress("/poem");
 	ofBuffer buf_;
 	buf_.set(str_.c_str(),str_.size());
+
+	message_.addIntArg(index_);
 	message_.addBlobArg(buf_);
 
 	message_.addIntArg(tdelay_);
@@ -140,12 +167,24 @@ void ofApp::sendOsc(string str_,string ip_,int tdelay_,int tin_,int tshow_,int t
 	sender_.sendMessage(message_);
 
 }
+void ofApp::sendReset(){
+	ofxOscMessage message_;
+	message_.setAddress("/reset");
+	message_.addIntArg(0);
+
+	ofxOscSender sender_;
+	sender_.setup("192.168.8.255",PORT);
+	sender_.sendMessage(message_);
+}
+
 void ofApp::setStatus(PStatus set_){
-	_status=set_;
 	switch(_status){
 		case SLEEP:
-			_serial.writeByte('A');
-			_str_info="";
+			if(_status!=set_){
+				_serial.writeByte('A');
+				_str_info="";
+				//sendReset();
+			}
 			break;
 		case PROCESS:
 			_serial.writeByte('B');
@@ -154,6 +193,7 @@ void ofApp::setStatus(PStatus set_){
 			_serial.writeByte('C');
 			break;
 	}
+	_status=set_;
 
 }
 
@@ -226,11 +266,14 @@ void ofApp::keyPressed(int key){
 void ofApp::loadXmlSetting(){
 	ofxXmlSettings param_;
 	param_.load("Pdata.xml");
-	_str_ip.push_back(param_.getValue("IP_FACE",""));
+	_str_ip.push_back(param_.getValue("IP_BROADCAST",""));
+/*	_str_ip.push_back(param_.getValue("IP_FACE",""));
 	_str_ip.push_back(param_.getValue("IP_POEM",""));
 	_str_ip.push_back(param_.getValue("IP_DISPLAY1",""));
 	_str_ip.push_back(param_.getValue("IP_DISPLAY2",""));
-	_str_ip.push_back(param_.getValue("IP_DISPLAY3",""));
-
-}
+	_str_ip.push_back(param_.getValue("IP_DISPLAY3",""));*/
+	for(auto&s :_str_ip){
+		ofLog()<<s;
+	}	
+}	
 
